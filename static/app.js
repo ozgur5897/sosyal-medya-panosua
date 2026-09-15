@@ -456,8 +456,8 @@ function renderDetail(card) {
     ? `<div class="media-grid">${card.media
         .map((m) =>
           m.media_type === "video"
-            ? `<div><video src="${m.file_path}" controls></video><div class="media-caption">${escapeHtml(m.uploaded_by_name)}</div></div>`
-            : `<div><img src="${m.file_path}" alt="" /><div class="media-caption">${escapeHtml(m.uploaded_by_name)}</div></div>`
+            ? `<div><video src="${m.file_path}" controls></video><div class="media-caption">${escapeHtml(m.uploaded_by_name)} · <a href="${m.file_path}" download class="media-download">İndir</a></div></div>`
+            : `<div><a href="${m.file_path}" target="_blank" rel="noopener noreferrer"><img src="${m.file_path}" alt="" /></a><div class="media-caption">${escapeHtml(m.uploaded_by_name)} · <a href="${m.file_path}" download class="media-download">İndir</a></div></div>`
         )
         .join("")}</div>`
     : `<p class="empty-note">Henüz yüklenen görsel/video yok.</p>`;
@@ -786,8 +786,8 @@ function renderHistory(log) {
                   <div class="media-grid">
                     ${s.media_summary.map((m) =>
                       m.media_type === "video"
-                        ? `<div><video src="${escapeHtml(m.file_path)}" controls></video><div class="media-caption">${escapeHtml(m.uploaded_by || "")}</div></div>`
-                        : `<div><img src="${escapeHtml(m.file_path)}" alt="" /><div class="media-caption">${escapeHtml(m.uploaded_by || "")}</div></div>`
+                        ? `<div><video src="${escapeHtml(m.file_path)}" controls></video><div class="media-caption">${escapeHtml(m.uploaded_by || "")} · <a href="${escapeHtml(m.file_path)}" download class="media-download">İndir</a></div></div>`
+                        : `<div><a href="${escapeHtml(m.file_path)}" target="_blank" rel="noopener noreferrer"><img src="${escapeHtml(m.file_path)}" alt="" /></a><div class="media-caption">${escapeHtml(m.uploaded_by || "")} · <a href="${escapeHtml(m.file_path)}" download class="media-download">İndir</a></div></div>`
                     ).join("")}
                   </div>
                 </div>
