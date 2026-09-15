@@ -74,6 +74,16 @@ function flash(msg) {
   state.bannerTimer = setTimeout(() => el.classList.add("hidden"), 3200);
 }
 
+// api()'nin fırlattığı hatalar bazen sadece iç kontrol için kullanılan
+// "unauthorized" işareti olabilir (oturum sona erdiğinde) — bunu asla
+// olduğu gibi kullanıcıya göstermeyiz, her zaman Türkçe bir karşılığı var.
+function displayError(err) {
+  if (err && err.message === "unauthorized") {
+    return "Oturumun sona erdi, giriş ekranına yönlendiriliyorsun…";
+  }
+  return (err && err.message) || "Bir şeyler ters gitti, tekrar dener misin?";
+}
+
 async function api(path, options = {}) {
   const res = await fetch(path, { credentials: "same-origin", ...options });
   if (res.status === 401) {
@@ -179,7 +189,7 @@ function initAuthForms() {
       document.getElementById("setupScreen").classList.add("hidden");
       showApp();
     } catch (err) {
-      errEl.textContent = err.message;
+      errEl.textContent = displayError(err);
     } finally {
       authSubmitting = false;
     }
@@ -200,7 +210,7 @@ function initAuthForms() {
       document.getElementById("loginScreen").classList.add("hidden");
       showApp();
     } catch (err) {
-      errEl.textContent = err.message;
+      errEl.textContent = displayError(err);
     } finally {
       authSubmitting = false;
     }
@@ -234,7 +244,7 @@ async function fetchCards() {
     state.cards = await api("/api/cards");
     renderBoard();
   } catch (err) {
-    if (err.message !== "unauthorized") flash(err.message);
+    if (err.message !== "unauthorized") flash(displayError(err));
   }
 }
 
@@ -387,7 +397,7 @@ function initCreateModal() {
       flash("İş oluşturuldu.");
       fetchCards();
     } catch (err) {
-      errEl.textContent = err.message;
+      errEl.textContent = displayError(err);
     } finally {
       btn.disabled = false;
       btn.textContent = "İşi oluştur";
@@ -404,7 +414,7 @@ async function openDetail(id) {
     renderDetail(card);
     openModalEl("detailModal");
   } catch (err) {
-    if (err.message !== "unauthorized") flash(err.message);
+    if (err.message !== "unauthorized") flash(displayError(err));
   }
 }
 
@@ -536,7 +546,7 @@ function bindDetailActions(card) {
         flash("İş silindi.");
         fetchCards();
       } catch (err) {
-        if (err.message !== "unauthorized") flash(err.message);
+        if (err.message !== "unauthorized") flash(displayError(err));
         openDetail(id);
       }
     });
@@ -557,7 +567,7 @@ function bindDetailActions(card) {
         await api(`/api/cards/${id}/media`, { method: "POST", body: fd });
         await openDetail(id);
       } catch (err) {
-        if (err.message !== "unauthorized") flash(err.message);
+        if (err.message !== "unauthorized") flash(displayError(err));
         uploadBtn.disabled = false;
         uploadBtn.textContent = "Görsel veya video yükle";
       }
@@ -576,7 +586,7 @@ function bindDetailActions(card) {
       input.value = "";
       await openDetail(id);
     } catch (err) {
-      if (err.message !== "unauthorized") flash(err.message);
+      if (err.message !== "unauthorized") flash(displayError(err));
     }
   });
 }
@@ -588,7 +598,7 @@ async function runCardAction(path, method) {
     await openDetail(id);
     fetchCards();
   } catch (err) {
-    if (err.message !== "unauthorized") flash(err.message);
+    if (err.message !== "unauthorized") flash(displayError(err));
   }
 }
 
@@ -691,7 +701,7 @@ function showEditForm(card) {
       await openDetail(card.id);
       fetchCards();
     } catch (err) {
-      errEl.textContent = err.message;
+      errEl.textContent = displayError(err);
       btn.disabled = false;
       btn.textContent = "Kaydet";
     }
@@ -706,7 +716,7 @@ async function openHistory() {
     renderHistory(log);
     openModalEl("historyModal");
   } catch (err) {
-    if (err.message !== "unauthorized") flash(err.message);
+    if (err.message !== "unauthorized") flash(displayError(err));
   }
 }
 
@@ -802,7 +812,7 @@ async function openUsers() {
     renderUsers(users);
     openModalEl("usersModal");
   } catch (err) {
-    if (err.message !== "unauthorized") flash(err.message);
+    if (err.message !== "unauthorized") flash(displayError(err));
   }
 }
 
@@ -861,7 +871,7 @@ function renderUsers(users) {
         await apiJson(`/api/users/${id}`, "PATCH", { role: e.target.value });
         flash("Rol güncellendi.");
       } catch (err) {
-        flash(err.message);
+        flash(displayError(err));
         openUsers();
       }
     });
@@ -870,7 +880,7 @@ function renderUsers(users) {
         await apiJson(`/api/users/${id}`, "PATCH", { is_admin: e.target.checked });
         flash("Güncellendi.");
       } catch (err) {
-        flash(err.message);
+        flash(displayError(err));
         openUsers();
       }
     });
@@ -884,7 +894,7 @@ function renderUsers(users) {
         }
         openUsers();
       } catch (err) {
-        flash(err.message);
+        flash(displayError(err));
       }
     });
   });
@@ -903,7 +913,7 @@ function renderUsers(users) {
       flash("Kullanıcı eklendi.");
       openUsers();
     } catch (err) {
-      errEl.textContent = err.message;
+      errEl.textContent = displayError(err);
     }
   });
 }
