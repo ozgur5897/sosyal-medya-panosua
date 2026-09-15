@@ -28,6 +28,7 @@ const state = {
   createBrand: "ortak",
   createAttachmentFile: null,
   bannerTimer: null,
+  pollTimer: null,
 };
 
 function platformLabel(key) {
@@ -221,6 +222,7 @@ function initAuthForms() {
       await api("/api/logout", { method: "POST" });
     } catch {}
     state.me = null;
+    if (state.pollTimer) clearInterval(state.pollTimer);
     document.getElementById("app").classList.add("hidden");
     showAuthScreen();
   });
@@ -235,6 +237,11 @@ function showApp() {
   document.getElementById("openHistoryBtn").style.display = canManage() ? "" : "none";
   document.getElementById("openUsersBtn").style.display = state.me.is_admin ? "" : "none";
   fetchCards();
+  // Pano, yeni yorum rozetleri gibi şeyleri sayfa hiç yenilenmeden görebilsinler diye
+  // düzenli aralıklarla kendini tazeler. Çıkış/tekrar giriş ile birden fazla
+  // zamanlayıcı birikmesin diye öncekini temizleyip yeniden kuruyoruz.
+  if (state.pollTimer) clearInterval(state.pollTimer);
+  state.pollTimer = setInterval(fetchCards, 30000);
 }
 
 // ---------------- Pano ----------------
@@ -301,6 +308,7 @@ function cardTileHtml(card) {
           ${remaining ? `<span>${remaining}</span>` : ""}
         </div>
         ${card.is_overdue ? `<span class="card__overdue-tag">Gecikti</span>` : ""}
+        ${card.unread_comments > 0 ? `<span class="card__unread-badge">💬 ${card.unread_comments} yeni yorum</span>` : ""}
       </div>
     </article>
   `;
@@ -413,6 +421,14 @@ async function openDetail(id) {
     const card = await api(`/api/cards/${id}`);
     renderDetail(card);
     openModalEl("detailModal");
+    // Bu kartı "görüldü" olarak işaretle, pano rozetini sessizce güncelle
+    api(`/api/cards/${id}/mark-read`, { method: "POST" })
+      .then(() => {
+        const local = state.cards.find((c) => c.id === id);
+        if (local) local.unread_comments = 0;
+        renderBoard();
+      })
+      .catch(() => {});
   } catch (err) {
     if (err.message !== "unauthorized") flash(displayError(err));
   }
