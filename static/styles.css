@@ -20,6 +20,8 @@
   --green-ink: #1d3626;
   --teal: #2f8f7a;
   --teal-ink: #123f35;
+  --slate: #6b7280;
+  --slate-ink: #374151;
   --red: #bd4438;
   --red-ink: #58180f;
   --urgent: #6b4c7a;
@@ -326,6 +328,7 @@ button, input, textarea, select { font-family: inherit; }
 .badge--blue { background: rgba(62,124,177,.16); color: var(--blue-ink); }
 .badge--green { background: rgba(76,140,98,.18); color: var(--green-ink); }
 .badge--teal { background: rgba(47,143,122,.18); color: var(--teal-ink); }
+.badge--slate { background: rgba(107,114,128,.18); color: var(--slate-ink); }
 .badge--red { background: var(--red); color: #fff; }
 .badge--urgent { background: var(--urgent); color: #fff; }
 .badge--neutral { background: var(--paper-2); color: var(--paper-muted); }
