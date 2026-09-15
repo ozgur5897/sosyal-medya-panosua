@@ -1,7 +1,9 @@
 """Sosyal Medya İş Panosu — üyelikli, rol tabanlı backend."""
 
+import csv
 import hashlib
 import hmac
+import io
 import json
 import os
 import secrets
@@ -13,6 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
@@ -40,6 +43,30 @@ MAX_UPLOAD_BYTES = 300 * 1024 * 1024  # 300 MB
 
 VALID_ROLES = {"istek_sahibi", "sosyal_medya"}
 VALID_STATUSES = {"bekliyor", "devam_ediyor", "tamamlandi", "paylasildi", "iptal"}
+
+PLATFORM_LABELS = {
+    "instagram": "Instagram",
+    "x": "X",
+    "youtube": "YouTube",
+    "tiktok": "TikTok",
+    "linkedin": "LinkedIn",
+    "facebook": "Facebook",
+}
+BRAND_LABELS = {
+    "bex_coffee": "Bex Coffee",
+    "estanbul_gaming": "Estanbul Gaming",
+    "ortak": "Ortak",
+}
+
+
+def platform_label(key: str) -> str:
+    return PLATFORM_LABELS.get(key, key)
+
+
+def brand_label(key: str) -> str:
+    return BRAND_LABELS.get(key, "Ortak")
+
+
 FIELD_LABELS = {
     "description": "açıklama",
     "due_date": "paylaşım tarihi",
@@ -47,6 +74,7 @@ FIELD_LABELS = {
     "platforms": "platformlar",
     "brand": "marka",
     "link": "bağlantı",
+    "assigned_to": "atanan kişi",
 }
 
 
@@ -126,7 +154,8 @@ def init_db() -> None:
             published_by INTEGER REFERENCES users(id),
             published_at TEXT,
             rejected_by INTEGER REFERENCES users(id),
-            rejected_at TEXT
+            rejected_at TEXT,
+            assigned_to INTEGER REFERENCES users(id)
         );
 
         CREATE TABLE IF NOT EXISTS comments (
@@ -172,6 +201,8 @@ def init_db() -> None:
         conn.execute("ALTER TABLE cards ADD COLUMN rejected_by INTEGER REFERENCES users(id)")
     if "rejected_at" not in existing_cols:
         conn.execute("ALTER TABLE cards ADD COLUMN rejected_at TEXT")
+    if "assigned_to" not in existing_cols:
+        conn.execute("ALTER TABLE cards ADD COLUMN assigned_to INTEGER REFERENCES users(id)")
     conn.commit()
     conn.close()
 
@@ -245,6 +276,7 @@ def card_to_dict(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
     d["completed_by_name"] = display_name_for(conn, d["completed_by"])
     d["published_by_name"] = display_name_for(conn, d["published_by"])
     d["rejected_by_name"] = display_name_for(conn, d["rejected_by"])
+    d["assigned_to_name"] = display_name_for(conn, d["assigned_to"])
     try:
         due = datetime.fromisoformat(d["due_date"])
         d["is_overdue"] = d["status"] not in ("paylasildi", "iptal") and due < datetime.now()
@@ -320,6 +352,7 @@ class CardEditRequest(BaseModel):
     platforms: list[str]
     brand: str
     link: Optional[str] = None
+    assigned_to: Optional[int] = None
 
 
 # ---------------- Auth uç noktaları ----------------
@@ -500,6 +533,19 @@ def change_own_password(body: ChangePasswordRequest, user: dict = Depends(get_cu
 
 # ---------------- İş kartları ----------------
 
+@app.get("/api/assignable-users")
+def list_assignable_users(user: dict = Depends(get_current_user)):
+    """Herhangi bir giriş yapmış kullanıcı, işleri atayabilmek için sosyal medya
+    ekibindeki aktif kişilerin sade bir listesini görebilir (tam kullanıcı
+    yönetimi değil — o hâlâ sadece yöneticilere açık)."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT id, display_name FROM users WHERE role = 'sosyal_medya' AND is_active = 1 ORDER BY display_name ASC"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 @app.get("/api/cards")
 def list_cards(user: dict = Depends(get_current_user)):
     conn = get_db()
@@ -551,6 +597,7 @@ def create_card(
     platforms: str = Form("[]"),
     brand: str = Form("ortak"),
     link: str = Form(""),
+    assigned_to: str = Form(""),
     attachment: Optional[UploadFile] = File(None),
     user: dict = Depends(get_current_user),
 ):
@@ -562,15 +609,16 @@ def create_card(
         platform_list = []
 
     link_value = normalize_link(link)
+    assigned_to_value = int(assigned_to) if assigned_to.strip().isdigit() else None
 
     now = datetime.now().isoformat(timespec="minutes")
     is_urgent = urgent.lower() in ("true", "1", "on", "yes")
 
     conn = get_db()
     cur = conn.execute(
-        """INSERT INTO cards (description, due_date, urgent, platforms, brand, link, created_by, created_at, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'bekliyor')""",
-        (description, due_date, int(is_urgent), json.dumps(platform_list), brand, link_value, user["id"], now),
+        """INSERT INTO cards (description, due_date, urgent, platforms, brand, link, assigned_to, created_by, created_at, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'bekliyor')""",
+        (description, due_date, int(is_urgent), json.dumps(platform_list), brand, link_value, assigned_to_value, user["id"], now),
     )
     card_id = cur.lastrowid
 
@@ -622,6 +670,7 @@ def edit_card(card_id: int, body: CardEditRequest, user: dict = Depends(require_
 
     current = card_to_dict(conn, row)
     new_link = normalize_link(body.link or "")
+    new_assigned_name = display_name_for(conn, body.assigned_to) if body.assigned_to else None
     new_values = {
         "description": body.description,
         "due_date": body.due_date,
@@ -629,10 +678,14 @@ def edit_card(card_id: int, body: CardEditRequest, user: dict = Depends(require_
         "platforms": body.platforms,
         "brand": body.brand,
         "link": new_link,
+        "assigned_to": new_assigned_name,
     }
+    current_for_diff = dict(current)
+    current_for_diff["assigned_to"] = current["assigned_to_name"]
+
     changes = []
     for key, label in FIELD_LABELS.items():
-        before = current[key]
+        before = current_for_diff[key]
         after = new_values[key]
         is_diff = sorted(before) != sorted(after) if isinstance(before, list) else before != after
         if is_diff:
@@ -640,8 +693,8 @@ def edit_card(card_id: int, body: CardEditRequest, user: dict = Depends(require_
 
     if changes:
         conn.execute(
-            "UPDATE cards SET description = ?, due_date = ?, urgent = ?, platforms = ?, brand = ?, link = ? WHERE id = ?",
-            (body.description, body.due_date, int(body.urgent), json.dumps(body.platforms), body.brand, new_link, card_id),
+            "UPDATE cards SET description = ?, due_date = ?, urgent = ?, platforms = ?, brand = ?, link = ?, assigned_to = ? WHERE id = ?",
+            (body.description, body.due_date, int(body.urgent), json.dumps(body.platforms), body.brand, new_link, body.assigned_to, card_id),
         )
         now = datetime.now().isoformat(timespec="minutes")
         conn.execute(
@@ -682,6 +735,7 @@ def delete_card(card_id: int, user: dict = Depends(require_manager)):
         "completed_by": current["completed_by_name"],
         "published_by": current["published_by_name"],
         "rejected_by": current["rejected_by_name"],
+        "assigned_to": current["assigned_to_name"],
         "comments": [
             {"author": display_name_for(conn, c["author_id"]), "text": c["text"], "created_at": c["created_at"]}
             for c in comments
@@ -885,6 +939,107 @@ def get_activity_log(user: dict = Depends(require_manager)):
         result.append(d)
     conn.close()
     return result
+
+
+# ---------------- Dışa aktarma ----------------
+
+STATUS_LABELS_TR = {
+    "bekliyor": "Onay bekliyor",
+    "devam_ediyor": "Devam ediyor",
+    "tamamlandi": "Tamamlandı",
+    "paylasildi": "Paylaşım yapıldı",
+    "iptal": "İptal edildi",
+}
+
+
+@app.get("/api/export/csv")
+def export_csv(user: dict = Depends(require_manager)):
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM cards ORDER BY created_at ASC").fetchall()
+    cards = [card_to_dict(conn, r) for r in rows]
+    conn.close()
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "ID", "Açıklama", "Marka", "Platformlar", "Durum", "Acil", "Bağlantı",
+        "Atanan", "Açan", "Oluşturulma", "Paylaşım Tarihi",
+        "Onaylayan", "Onay Tarihi", "Tamamlayan", "Tamamlanma Tarihi",
+        "Paylaşan", "Paylaşım Yapılma Tarihi", "Reddeden", "Red Tarihi",
+    ])
+    for c in cards:
+        writer.writerow([
+            c["id"],
+            c["description"],
+            brand_label(c["brand"]),
+            ", ".join(platform_label(p) for p in c["platforms"]),
+            STATUS_LABELS_TR.get(c["status"], c["status"]),
+            "Evet" if c["urgent"] else "Hayır",
+            c["link"] or "",
+            c["assigned_to_name"] or "",
+            c["created_by_name"] or "",
+            c["created_at"],
+            c["due_date"],
+            c["approved_by_name"] or "",
+            c["approved_at"] or "",
+            c["completed_by_name"] or "",
+            c["completed_at"] or "",
+            c["published_by_name"] or "",
+            c["published_at"] or "",
+            c["rejected_by_name"] or "",
+            c["rejected_at"] or "",
+        ])
+
+    csv_bytes = "\ufeff" + buf.getvalue()  # başına BOM: Excel Türkçe karakterleri doğru göstersin
+    filename = f"isler-{datetime.now().strftime('%Y-%m-%d')}.csv"
+    return Response(
+        content=csv_bytes,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/backup")
+def download_backup(admin: dict = Depends(require_admin)):
+    conn = get_db()
+    users = [dict(r) for r in conn.execute(
+        "SELECT id, username, display_name, role, is_admin, is_active, created_at FROM users"
+    ).fetchall()]
+    cards = [card_to_dict(conn, r) for r in conn.execute("SELECT * FROM cards").fetchall()]
+    comments = [
+        {**dict(r), "author_name": display_name_for(conn, r["author_id"])}
+        for r in conn.execute("SELECT * FROM comments").fetchall()
+    ]
+    media = [
+        {**dict(r), "uploaded_by_name": display_name_for(conn, r["uploaded_by"])}
+        for r in conn.execute("SELECT * FROM media").fetchall()
+    ]
+    log_rows = conn.execute("SELECT * FROM activity_log").fetchall()
+    activity_log = []
+    for r in log_rows:
+        d = dict(r)
+        d["actor_name"] = display_name_for(conn, r["actor_id"])
+        try:
+            d["payload"] = json.loads(d["payload"])
+        except (TypeError, ValueError):
+            d["payload"] = {}
+        activity_log.append(d)
+    conn.close()
+
+    backup = {
+        "exported_at": datetime.now().isoformat(),
+        "users": users,
+        "cards": cards,
+        "comments": comments,
+        "media": media,
+        "activity_log": activity_log,
+    }
+    filename = f"yedek-{datetime.now().strftime('%Y-%m-%d-%H%M')}.json"
+    return Response(
+        content=json.dumps(backup, ensure_ascii=False, indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
