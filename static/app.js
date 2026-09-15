@@ -87,7 +87,12 @@ function displayError(err) {
 
 async function api(path, options = {}) {
   const res = await fetch(path, { credentials: "same-origin", ...options });
-  if (res.status === 401) {
+  // /api/login ve /api/setup kendi 401'ini "kullanıcı adı/şifre hatalı" gibi normal bir
+  // doğrulama hatası olarak döner — bu, oturumun sona erdiği anlamına gelmez (zaten
+  // henüz giriş yapılmamış oluyor), o yüzden bu iki uç nokta için "oturum sona erdi"
+  // yönlendirmesini tetiklemiyoruz; asıl hata mesajı normal şekilde gösterilir.
+  const isAuthEndpoint = path === "/api/login" || path === "/api/setup";
+  if (res.status === 401 && !isAuthEndpoint) {
     showAuthScreen();
     throw new Error("unauthorized");
   }
