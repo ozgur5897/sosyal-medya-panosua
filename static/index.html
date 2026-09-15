@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Sosyal Medya İş Panosu</title>
-<link rel="stylesheet" href="/styles.css?v=5" />
+<link rel="stylesheet" href="/styles.css?v=6" />
 </head>
 <body>
 
@@ -61,14 +61,31 @@
     </div>
     <div class="board-header__right">
       <span class="whoami" id="whoami"></span>
+      <button class="btn btn--ghost-dark" id="openCalendarBtn">Takvim</button>
       <button class="btn btn--ghost-dark" id="openUsersBtn" style="display:none">Kullanıcılar</button>
       <button class="btn btn--ghost-dark" id="openHistoryBtn" style="display:none">Geçmiş</button>
+      <button class="btn btn--ghost-dark" id="exportCsvBtn" style="display:none">Dışa aktar</button>
+      <button class="btn btn--ghost-dark" id="downloadBackupBtn" style="display:none">Yedek indir</button>
       <button class="btn btn--ghost-dark" id="logoutBtn">Çıkış yap</button>
       <button class="btn btn--primary" id="openCreateModal">+ Yeni iş</button>
     </div>
   </header>
 
   <div id="banner" class="banner hidden"></div>
+
+  <div class="filter-bar">
+    <input type="text" id="filterSearch" placeholder="Açıklamada ara..." />
+    <select id="filterBrand">
+      <option value="">Tüm markalar</option>
+    </select>
+    <select id="filterPlatform">
+      <option value="">Tüm platformlar</option>
+    </select>
+    <select id="filterAssignee">
+      <option value="">Herkes</option>
+    </select>
+    <button class="btn btn--ghost-dark" id="clearFiltersBtn">Filtreleri temizle</button>
+  </div>
 
   <main class="board" id="board"></main>
 </div>
@@ -108,6 +125,13 @@
         <input type="text" id="f_link" placeholder="https://..." />
       </label>
 
+      <label class="field">
+        <span>Ata (opsiyonel)</span>
+        <select id="f_assigned_to">
+          <option value="">Atanmamış</option>
+        </select>
+      </label>
+
       <div class="field-row">
         <label class="field">
           <span>Paylaşım tarihi</span>
@@ -136,6 +160,17 @@
   </div>
 </div>
 
+<!-- Takvim modalı -->
+<div class="modal-backdrop" id="calendarModal">
+  <div class="modal modal--wide">
+    <div class="modal__head">
+      <h3>Takvim</h3>
+      <button class="modal__close" data-close="calendarModal">&times;</button>
+    </div>
+    <div class="modal__body" id="calendarBody"></div>
+  </div>
+</div>
+
 <!-- Geçmiş modalı -->
 <div class="modal-backdrop" id="historyModal">
   <div class="modal modal--wide">
@@ -158,6 +193,6 @@
   </div>
 </div>
 
-<script src="/app.js?v=5"></script>
+<script src="/app.js?v=6"></script>
 </body>
 </html>
