@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 import json
+import os
 import secrets
 import shutil
 import sqlite3
@@ -17,10 +18,19 @@ from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "data.db"
-UPLOADS_DIR = BASE_DIR / "uploads"
 STATIC_DIR = BASE_DIR / "static"
-SECRET_KEY_PATH = BASE_DIR / "secret_key.txt"
+
+# Veri (veritabanı, oturum anahtarı, yüklenen dosyalar) normalde kod ile aynı
+# klasörde tutulur. Render gibi platformlarda ücretsiz plan bu klasörü her
+# "uykuya dalma/uyanma" veya yeniden başlatmada sıfırlar; kalıcı bir disk
+# eklendiğinde DATA_DIR ortam değişkenini o diskin bağlandığı yola
+# ayarlayarak (örn. /var/data) verilerin kalıcı olmasını sağlayabilirsiniz.
+DATA_DIR = Path(os.environ.get("DATA_DIR", str(BASE_DIR)))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+DB_PATH = DATA_DIR / "data.db"
+UPLOADS_DIR = DATA_DIR / "uploads"
+SECRET_KEY_PATH = DATA_DIR / "secret_key.txt"
 
 UPLOADS_DIR.mkdir(exist_ok=True)
 
@@ -628,7 +638,12 @@ def delete_card(card_id: int, user: dict = Depends(require_manager)):
             for c in comments
         ],
         "media_summary": [
-            {"media_type": m["media_type"], "uploaded_by": display_name_for(conn, m["uploaded_by"]), "uploaded_at": m["uploaded_at"]}
+            {
+                "media_type": m["media_type"],
+                "uploaded_by": display_name_for(conn, m["uploaded_by"]),
+                "uploaded_at": m["uploaded_at"],
+                "file_path": m["file_path"],
+            }
             for m in media
         ],
     }
