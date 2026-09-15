@@ -30,6 +30,9 @@ const state = {
   createAttachmentFile: null,
   bannerTimer: null,
   pollTimer: null,
+  assignableUsers: [],
+  filters: { search: "", brand: "", platform: "", assignee: "" },
+  calendarMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
 };
 
 function platformLabel(key) {
@@ -242,12 +245,39 @@ function showApp() {
     `<strong>${escapeHtml(state.me.display_name)}</strong> · ${state.me.role === "sosyal_medya" ? "Sosyal Medya Ekibi" : "İstek Sahibi"}`;
   document.getElementById("openHistoryBtn").style.display = canManage() ? "" : "none";
   document.getElementById("openUsersBtn").style.display = state.me.is_admin ? "" : "none";
+  document.getElementById("exportCsvBtn").style.display = canManage() ? "" : "none";
+  document.getElementById("downloadBackupBtn").style.display = state.me.is_admin ? "" : "none";
   fetchCards();
+  fetchAssignableUsers();
   // Pano, yeni yorum rozetleri gibi şeyleri sayfa hiç yenilenmeden görebilsinler diye
   // düzenli aralıklarla kendini tazeler. Çıkış/tekrar giriş ile birden fazla
   // zamanlayıcı birikmesin diye öncekini temizleyip yeniden kuruyoruz.
   if (state.pollTimer) clearInterval(state.pollTimer);
-  state.pollTimer = setInterval(fetchCards, 30000);
+  state.pollTimer = setInterval(() => {
+    fetchCards();
+    fetchAssignableUsers();
+  }, 30000);
+}
+
+async function fetchAssignableUsers() {
+  try {
+    state.assignableUsers = await api("/api/assignable-users");
+  } catch {
+    return; // sessizce geç, kritik değil
+  }
+  const options = state.assignableUsers.map((u) => `<option value="${u.id}">${escapeHtml(u.display_name)}</option>`).join("");
+  const createSel = document.getElementById("f_assigned_to");
+  if (createSel) {
+    const prev = createSel.value;
+    createSel.innerHTML = `<option value="">Atanmamış</option>${options}`;
+    createSel.value = prev;
+  }
+  const filterSel = document.getElementById("filterAssignee");
+  if (filterSel) {
+    const prev = filterSel.value;
+    filterSel.innerHTML = `<option value="">Herkes</option>${options}`;
+    filterSel.value = prev;
+  }
 }
 
 // ---------------- Pano ----------------
@@ -268,10 +298,22 @@ function sortCards(cards) {
   });
 }
 
+function applyFilters(cards) {
+  const f = state.filters;
+  return cards.filter((c) => {
+    if (f.search && !c.description.toLowerCase().includes(f.search)) return false;
+    if (f.brand && c.brand !== f.brand) return false;
+    if (f.platform && !(c.platforms || []).includes(f.platform)) return false;
+    if (f.assignee && String(c.assigned_to || "") !== f.assignee) return false;
+    return true;
+  });
+}
+
 function renderBoard() {
   const board = document.getElementById("board");
+  const filtered = applyFilters(state.cards);
   const grouped = Object.fromEntries(STATUSES.map((s) => [s.key, []]));
-  for (const c of sortCards(state.cards)) grouped[c.status]?.push(c);
+  for (const c of sortCards(filtered)) grouped[c.status]?.push(c);
 
   board.innerHTML = STATUSES.map(
     (s) => `
@@ -293,11 +335,20 @@ function renderBoard() {
   });
 }
 
+function isApproaching(card) {
+  if (card.is_overdue || card.status === "paylasildi" || card.status === "iptal") return false;
+  const due = new Date(card.due_date);
+  if (isNaN(due)) return false;
+  const diffH = (due - new Date()) / 36e5;
+  return diffH >= 0 && diffH <= 24;
+}
+
 function cardTileHtml(card) {
   const overdueClass = card.is_overdue ? "is-overdue" : "";
   const topColor = card.is_overdue ? "var(--red)" : `var(--${STATUSES.find((s) => s.key === card.status)?.dot || "amber"})`;
   const remaining = remainingText(card);
   const platformsHtml = (card.platforms || []).map((k) => `<span title="${escapeHtml(platformLabel(k))}">${escapeHtml(platformLabel(k))}</span>`).join(", ");
+  const approaching = isApproaching(card);
 
   return `
     <article class="card ${overdueClass}" data-id="${card.id}" style="border-top-color:${topColor}">
@@ -311,9 +362,11 @@ function cardTileHtml(card) {
         <div class="card__meta">
           <span>Paylaşım: ${formatDateTime(card.due_date)}</span>
           <span>Açan: ${escapeHtml(card.created_by_name || "")}</span>
+          ${card.assigned_to_name ? `<span>Atanan: ${escapeHtml(card.assigned_to_name)}</span>` : ""}
           ${remaining ? `<span>${remaining}</span>` : ""}
         </div>
         ${card.is_overdue ? `<span class="card__overdue-tag">Gecikti</span>` : ""}
+        ${approaching ? `<span class="card__approaching-tag">Yaklaşıyor</span>` : ""}
         ${card.unread_comments > 0 ? `<span class="card__unread-badge">💬 ${card.unread_comments} yeni yorum</span>` : ""}
       </div>
     </article>
@@ -352,6 +405,7 @@ function resetCreateForm() {
   document.getElementById("f_due_date").value = "";
   document.getElementById("f_urgent").checked = false;
   document.getElementById("f_link").value = "";
+  document.getElementById("f_assigned_to").value = "";
   document.getElementById("f_attachment").value = "";
   document.getElementById("f_attachment_preview").innerHTML = "";
   document.getElementById("f_attachment_btn").textContent = "Görsel veya video seç";
@@ -404,6 +458,7 @@ function initCreateModal() {
       fd.append("platforms", JSON.stringify(state.createPlatforms));
       fd.append("brand", state.createBrand);
       fd.append("link", document.getElementById("f_link").value.trim());
+      fd.append("assigned_to", document.getElementById("f_assigned_to").value);
       if (state.createAttachmentFile) fd.append("attachment", state.createAttachmentFile);
 
       await api("/api/cards", { method: "POST", body: fd });
@@ -508,6 +563,7 @@ function renderDetail(card) {
       <div class="detail-meta">
         <div><strong>${escapeHtml(card.created_by_name || "")}</strong>Açan · ${formatDateTime(card.created_at)}</div>
         <div><strong>${formatDateTime(card.due_date)}</strong>Paylaşım tarihi${remaining ? " · " + remaining : ""}</div>
+        ${card.assigned_to_name ? `<div><strong>${escapeHtml(card.assigned_to_name)}</strong>Atanan</div>` : ""}
         ${card.approved_by_name ? `<div><strong>${escapeHtml(card.approved_by_name)}</strong>Onaylayan · ${formatDateTime(card.approved_at)}</div>` : ""}
         ${card.completed_by_name ? `<div><strong>${escapeHtml(card.completed_by_name)}</strong>Tamamlayan · ${formatDateTime(card.completed_at)}</div>` : ""}
         ${card.published_by_name ? `<div><strong>${escapeHtml(card.published_by_name)}</strong>Paylaşan · ${formatDateTime(card.published_at)}</div>` : ""}
@@ -654,6 +710,13 @@ function showEditForm(card) {
       <span>Bağlantı (opsiyonel)</span>
       <input type="text" id="e_link" placeholder="https://..." value="${escapeHtml(card.link || "")}" />
     </label>
+    <label class="field">
+      <span>Ata (opsiyonel)</span>
+      <select id="e_assigned_to">
+        <option value="">Atanmamış</option>
+        ${state.assignableUsers.map((u) => `<option value="${u.id}" ${card.assigned_to === u.id ? "selected" : ""}>${escapeHtml(u.display_name)}</option>`).join("")}
+      </select>
+    </label>
     <div class="field-row">
       <label class="field">
         <span>Paylaşım tarihi</span>
@@ -723,6 +786,7 @@ function showEditForm(card) {
         platforms: ePlatforms,
         brand: eBrand,
         link: document.getElementById("e_link").value.trim(),
+        assigned_to: document.getElementById("e_assigned_to").value ? Number(document.getElementById("e_assigned_to").value) : null,
       });
       flash("İş güncellendi.");
       await openDetail(card.id);
@@ -829,6 +893,99 @@ function formatLogValue(field, value) {
   if (field === "acil durumu") return value ? "Evet" : "Hayır";
   if (field === "paylaşım tarihi") return formatDateTime(value);
   return value ?? "—";
+}
+
+// ---------------- Takvim ----------------
+
+function openCalendar() {
+  renderCalendar();
+  openModalEl("calendarModal");
+}
+
+function renderCalendar() {
+  const body = document.getElementById("calendarBody");
+  const year = state.calendarMonth.getFullYear();
+  const month = state.calendarMonth.getMonth();
+  const monthNames = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+  const dayLabels = ["Pt", "Sa", "Ça", "Pe", "Cu", "Ct", "Pz"];
+
+  const firstOfMonth = new Date(year, month, 1);
+  let startOffset = firstOfMonth.getDay() - 1; // Pazartesi ilk sütun olsun
+  if (startOffset < 0) startOffset = 6;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const daysInPrevMonth = new Date(year, month, 0).getDate();
+
+  const today = new Date();
+  const isToday = (y, m, d) => today.getFullYear() === y && today.getMonth() === m && today.getDate() === d;
+
+  const cardsByDay = {};
+  for (const c of state.cards) {
+    const d = new Date(c.due_date);
+    if (isNaN(d)) continue;
+    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    (cardsByDay[key] = cardsByDay[key] || []).push(c);
+  }
+
+  const cells = [];
+  for (let i = startOffset; i > 0; i--) {
+    const dnum = daysInPrevMonth - i + 1;
+    cells.push({ y: month === 0 ? year - 1 : year, m: month === 0 ? 11 : month - 1, d: dnum, other: true });
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    cells.push({ y: year, m: month, d, other: false });
+  }
+  let nextDay = 1;
+  while (cells.length < 42) {
+    cells.push({ y: month === 11 ? year + 1 : year, m: month === 11 ? 0 : month + 1, d: nextDay++, other: true });
+  }
+
+  const gridHtml = cells
+    .map((c) => {
+      const key = `${c.y}-${c.m}-${c.d}`;
+      const dayCards = (cardsByDay[key] || []).slice(0, 4);
+      const extra = (cardsByDay[key] || []).length - dayCards.length;
+      const pills = dayCards
+        .map((card) => {
+          const color = card.is_overdue ? "var(--red)" : `var(--${STATUSES.find((s) => s.key === card.status)?.dot || "amber"})`;
+          return `<div class="calendar-pill" data-id="${card.id}" style="background:${color}" title="${escapeHtml(card.description)}">${escapeHtml(card.description.slice(0, 18))}</div>`;
+        })
+        .join("");
+      return `
+        <div class="calendar-day ${c.other ? "is-other-month" : ""} ${isToday(c.y, c.m, c.d) ? "is-today" : ""}">
+          <div class="calendar-day__num">${c.d}</div>
+          ${pills}
+          ${extra > 0 ? `<div style="font-size:9px;color:var(--paper-muted)">+${extra} daha</div>` : ""}
+        </div>
+      `;
+    })
+    .join("");
+
+  body.innerHTML = `
+    <div class="calendar-header">
+      <button class="calendar-nav-btn" id="calPrevBtn" type="button">‹</button>
+      <h4>${monthNames[month]} ${year}</h4>
+      <button class="calendar-nav-btn" id="calNextBtn" type="button">›</button>
+    </div>
+    <div class="calendar-grid">
+      ${dayLabels.map((l) => `<div class="calendar-daylabel">${l}</div>`).join("")}
+      ${gridHtml}
+    </div>
+  `;
+
+  document.getElementById("calPrevBtn").addEventListener("click", () => {
+    state.calendarMonth = new Date(year, month - 1, 1);
+    renderCalendar();
+  });
+  document.getElementById("calNextBtn").addEventListener("click", () => {
+    state.calendarMonth = new Date(year, month + 1, 1);
+    renderCalendar();
+  });
+  body.querySelectorAll(".calendar-pill").forEach((el) => {
+    el.addEventListener("click", () => {
+      closeModal("calendarModal");
+      openDetail(Number(el.dataset.id));
+    });
+  });
 }
 
 // ---------------- Kullanıcılar (admin) ----------------
@@ -945,14 +1102,56 @@ function renderUsers(users) {
   });
 }
 
+// ---------------- Filtre çubuğu ----------------
+
+function initFilterBar() {
+  document.getElementById("filterBrand").innerHTML =
+    `<option value="">Tüm markalar</option>` + BRANDS.map((b) => `<option value="${b.key}">${escapeHtml(b.label)}</option>`).join("");
+  document.getElementById("filterPlatform").innerHTML =
+    `<option value="">Tüm platformlar</option>` + PLATFORMS.map((p) => `<option value="${p.key}">${escapeHtml(p.label)}</option>`).join("");
+
+  document.getElementById("filterSearch").addEventListener("input", (e) => {
+    state.filters.search = e.target.value.trim().toLowerCase();
+    renderBoard();
+  });
+  document.getElementById("filterBrand").addEventListener("change", (e) => {
+    state.filters.brand = e.target.value;
+    renderBoard();
+  });
+  document.getElementById("filterPlatform").addEventListener("change", (e) => {
+    state.filters.platform = e.target.value;
+    renderBoard();
+  });
+  document.getElementById("filterAssignee").addEventListener("change", (e) => {
+    state.filters.assignee = e.target.value;
+    renderBoard();
+  });
+  document.getElementById("clearFiltersBtn").addEventListener("click", () => {
+    state.filters = { search: "", brand: "", platform: "", assignee: "" };
+    document.getElementById("filterSearch").value = "";
+    document.getElementById("filterBrand").value = "";
+    document.getElementById("filterPlatform").value = "";
+    document.getElementById("filterAssignee").value = "";
+    renderBoard();
+  });
+}
+
 // ---------------- Başlat ----------------
 
 function init() {
   initAuthForms();
   initModalClose();
   initCreateModal();
+  initFilterBar();
   document.getElementById("openHistoryBtn").addEventListener("click", openHistory);
   document.getElementById("openUsersBtn").addEventListener("click", openUsers);
+  document.getElementById("exportCsvBtn").addEventListener("click", () => {
+    window.location.href = "/api/export/csv";
+  });
+  document.getElementById("downloadBackupBtn").addEventListener("click", () => {
+    window.location.href = "/api/backup";
+  });
+  document.getElementById("openCalendarBtn").addEventListener("click", openCalendar);
   boot();
 }
 
