@@ -3,6 +3,7 @@ const STATUSES = [
   { key: "devam_ediyor", label: "Devam ediyor", dot: "blue" },
   { key: "tamamlandi", label: "Tamamlandı", dot: "green" },
   { key: "paylasildi", label: "Paylaşım yapıldı", dot: "teal" },
+  { key: "iptal", label: "İptal edildi", dot: "slate" },
 ];
 
 const PLATFORMS = [
@@ -440,7 +441,7 @@ async function openDetail(id) {
 }
 
 function statusBadgeClass(status) {
-  return { bekliyor: "badge--amber", devam_ediyor: "badge--blue", tamamlandi: "badge--green", paylasildi: "badge--teal" }[status] || "badge--neutral";
+  return { bekliyor: "badge--amber", devam_ediyor: "badge--blue", tamamlandi: "badge--green", paylasildi: "badge--teal", iptal: "badge--slate" }[status] || "badge--neutral";
 }
 
 function renderDetail(card) {
@@ -478,13 +479,16 @@ function renderDetail(card) {
 
   let actionsHtml = "";
   if (mine) {
-    if (card.status === "bekliyor") actionsHtml += `<button class="btn btn--primary" id="btnApprove">İşi onayla</button>`;
+    if (card.status === "bekliyor") {
+      actionsHtml += `<button class="btn btn--primary" id="btnApprove">İşi onayla</button>`;
+      actionsHtml += `<button class="btn btn--danger-outline" id="btnReject">İptal et</button>`;
+    }
     if (card.status === "devam_ediyor") actionsHtml += `<button class="btn btn--success" id="btnComplete">Tamamlandı olarak işaretle</button>`;
     if (card.status === "tamamlandi") {
       actionsHtml += `<button class="btn btn--teal" id="btnPublish">Paylaşıldı olarak işaretle</button>`;
       actionsHtml += `<button class="btn btn--ghost" id="btnReopen">Tekrar aç</button>`;
     }
-    if (card.status === "paylasildi") actionsHtml += `<button class="btn btn--ghost" id="btnReopen">Tekrar aç</button>`;
+    if (card.status === "paylasildi" || card.status === "iptal") actionsHtml += `<button class="btn btn--ghost" id="btnReopen">Tekrar aç</button>`;
     actionsHtml += `<button class="btn btn--ghost" id="btnEdit">Düzenle</button>`;
     actionsHtml += `<button class="btn btn--danger-outline" id="btnDeleteAsk">Sil</button>`;
   }
@@ -507,6 +511,7 @@ function renderDetail(card) {
         ${card.approved_by_name ? `<div><strong>${escapeHtml(card.approved_by_name)}</strong>Onaylayan · ${formatDateTime(card.approved_at)}</div>` : ""}
         ${card.completed_by_name ? `<div><strong>${escapeHtml(card.completed_by_name)}</strong>Tamamlayan · ${formatDateTime(card.completed_at)}</div>` : ""}
         ${card.published_by_name ? `<div><strong>${escapeHtml(card.published_by_name)}</strong>Paylaşan · ${formatDateTime(card.published_at)}</div>` : ""}
+        ${card.rejected_by_name ? `<div><strong>${escapeHtml(card.rejected_by_name)}</strong>İptal eden · ${formatDateTime(card.rejected_at)}</div>` : ""}
       </div>
       <div id="actionsBlock">
         ${mine ? `<div class="detail-actions">${actionsHtml}</div>` : `<p class="permission-note">Onaylama, tamamlama, paylaşma, düzenleme ve silme sosyal medya ekibi rolüne ait.</p>`}
@@ -541,6 +546,7 @@ function bindDetailActions(card) {
   const id = card.id;
 
   document.getElementById("btnApprove")?.addEventListener("click", () => runCardAction(`/api/cards/${id}/approve`, "POST"));
+  document.getElementById("btnReject")?.addEventListener("click", () => runCardAction(`/api/cards/${id}/reject`, "POST"));
   document.getElementById("btnComplete")?.addEventListener("click", () => runCardAction(`/api/cards/${id}/complete`, "POST"));
   document.getElementById("btnPublish")?.addEventListener("click", () => runCardAction(`/api/cards/${id}/publish`, "POST"));
   document.getElementById("btnReopen")?.addEventListener("click", () => runCardAction(`/api/cards/${id}/reopen`, "POST"));
