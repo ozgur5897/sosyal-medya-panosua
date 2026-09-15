@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sosyal Medya İş Panosu</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+<!-- İlk kurulum ekranı -->
+<div class="authScreen hidden" id="setupScreen">
+  <div class="authCard">
+    <h1 class="authTitle">Sosyal Medya İş Panosu</h1>
+    <p class="authSubtitle">İlk kurulum — yönetici hesabını oluştur</p>
+    <form id="setupForm">
+      <label class="field">
+        <span>Adın</span>
+        <input type="text" id="su_display_name" required autocomplete="name" />
+      </label>
+      <label class="field">
+        <span>Kullanıcı adı</span>
+        <input type="text" id="su_username" required autocomplete="username" />
+      </label>
+      <label class="field">
+        <span>Şifre (en az 6 karakter)</span>
+        <input type="password" id="su_password" required minlength="6" autocomplete="new-password" />
+      </label>
+      <p class="authError" id="setupError"></p>
+      <button type="submit" class="btn btn--primary btn--block">Kurulumu tamamla</button>
+    </form>
+  </div>
+</div>
+
+<!-- Giriş ekranı -->
+<div class="authScreen hidden" id="loginScreen">
+  <div class="authCard">
+    <h1 class="authTitle">Sosyal Medya İş Panosu</h1>
+    <p class="authSubtitle">Devam etmek için giriş yap</p>
+    <form id="loginForm">
+      <label class="field">
+        <span>Kullanıcı adı</span>
+        <input type="text" id="li_username" required autocomplete="username" />
+      </label>
+      <label class="field">
+        <span>Şifre</span>
+        <input type="password" id="li_password" required autocomplete="current-password" />
+      </label>
+      <p class="authError" id="loginError"></p>
+      <button type="submit" class="btn btn--primary btn--block">Giriş yap</button>
+    </form>
+  </div>
+</div>
+
+<!-- Ana uygulama -->
+<div id="app" class="hidden">
+  <header class="board-header">
+    <div class="board-header__left">
+      <h1 class="board-title">Sosyal Medya İş Panosu</h1>
+      <p class="board-subtitle">İstekten paylaşıma kadar tek pano</p>
+    </div>
+    <div class="board-header__right">
+      <span class="whoami" id="whoami"></span>
+      <button class="btn btn--ghost-dark" id="openUsersBtn" style="display:none">Kullanıcılar</button>
+      <button class="btn btn--ghost-dark" id="openHistoryBtn" style="display:none">Geçmiş</button>
+      <button class="btn btn--ghost-dark" id="logoutBtn">Çıkış yap</button>
+      <button class="btn btn--primary" id="openCreateModal">+ Yeni iş</button>
+    </div>
+  </header>
+
+  <div id="banner" class="banner hidden"></div>
+
+  <main class="board" id="board"></main>
+</div>
+
+<!-- Yeni iş oluşturma modalı -->
+<div class="modal-backdrop" id="createModal">
+  <div class="modal">
+    <div class="modal__head">
+      <h3>Yeni iş oluştur</h3>
+      <button class="modal__close" data-close="createModal">&times;</button>
+    </div>
+    <div class="modal__body">
+      <label class="field">
+        <span>Ne yapılmasını istiyorsun?</span>
+        <textarea id="f_description" rows="4" placeholder="Açıklamayı buraya yaz, sosyal medya ekibi bunu görecek" required></textarea>
+      </label>
+
+      <div class="field">
+        <span>Platformlar</span>
+        <div class="chip-row" id="f_platforms"></div>
+      </div>
+
+      <div class="field">
+        <span>Marka</span>
+        <div class="chip-row" id="f_brand"></div>
+      </div>
+
+      <label class="field">
+        <span>Örnek görsel veya video (opsiyonel)</span>
+        <input type="file" id="f_attachment" accept="image/*,video/*" style="display:none" />
+        <button type="button" class="btn btn--dashed" id="f_attachment_btn">Görsel veya video seç</button>
+        <div id="f_attachment_preview"></div>
+      </label>
+
+      <label class="field">
+        <span>Bağlantı (opsiyonel)</span>
+        <input type="text" id="f_link" placeholder="https://..." />
+      </label>
+
+      <div class="field-row">
+        <label class="field">
+          <span>Paylaşım tarihi</span>
+          <input type="datetime-local" id="f_due_date" required />
+        </label>
+        <label class="field field--checkbox">
+          <input type="checkbox" id="f_urgent" />
+          <span>Acil</span>
+        </label>
+      </div>
+
+      <p class="authError" id="createError"></p>
+      <button type="button" class="btn btn--primary btn--block" id="createSubmitBtn">İşi oluştur</button>
+    </div>
+  </div>
+</div>
+
+<!-- Kart detay modalı -->
+<div class="modal-backdrop" id="detailModal">
+  <div class="modal modal--wide">
+    <div class="modal__head">
+      <h3>İş</h3>
+      <button class="modal__close" data-close="detailModal">&times;</button>
+    </div>
+    <div class="modal__body" id="detailBody"></div>
+  </div>
+</div>
+
+<!-- Geçmiş modalı -->
+<div class="modal-backdrop" id="historyModal">
+  <div class="modal modal--wide">
+    <div class="modal__head">
+      <h3>Değişiklik geçmişi</h3>
+      <button class="modal__close" data-close="historyModal">&times;</button>
+    </div>
+    <div class="modal__body" id="historyBody"></div>
+  </div>
+</div>
+
+<!-- Kullanıcılar modalı (admin) -->
+<div class="modal-backdrop" id="usersModal">
+  <div class="modal modal--wide">
+    <div class="modal__head">
+      <h3>Kullanıcılar</h3>
+      <button class="modal__close" data-close="usersModal">&times;</button>
+    </div>
+    <div class="modal__body" id="usersBody"></div>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
