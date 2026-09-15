@@ -268,6 +268,54 @@ button, input, textarea, select { font-family: inherit; }
   display: inline-block; margin-top: 8px; margin-left: 6px; font-size: 11px; font-weight: 700;
   color: #fff; background: var(--blue); padding: 3px 8px; border-radius: 5px;
 }
+.card__approaching-tag {
+  display: inline-block; margin-top: 8px; margin-left: 6px; font-size: 11px; font-weight: 700;
+  color: #fff; background: var(--amber); padding: 3px 8px; border-radius: 5px;
+}
+
+/* ---------- Filtre çubuğu ---------- */
+
+.filter-bar {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+  padding: 0 22px 16px;
+}
+.filter-bar input[type="text"], .filter-bar select {
+  padding: 8px 10px; border-radius: 6px; border: 1px solid var(--ink-line);
+  background: var(--ink-panel); color: var(--ink-text); font-size: 13px;
+}
+.filter-bar input[type="text"] { flex: 1; min-width: 160px; }
+
+/* ---------- Takvim ---------- */
+
+.calendar-header {
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;
+}
+.calendar-header h4 { margin: 0; font-size: 15px; font-weight: 700; }
+.calendar-nav-btn {
+  background: var(--paper-2); border: 1px solid var(--paper-line); border-radius: 6px;
+  width: 30px; height: 30px; font-size: 15px; cursor: pointer; color: var(--paper-ink);
+}
+.calendar-grid {
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px;
+}
+.calendar-daylabel {
+  font-size: 11px; font-weight: 700; color: var(--paper-muted); text-align: center; padding-bottom: 4px;
+}
+.calendar-day {
+  min-height: 74px; border: 1px solid var(--paper-line); border-radius: 6px; padding: 4px;
+  background: #fff; display: flex; flex-direction: column; gap: 3px;
+}
+.calendar-day.is-other-month { background: var(--paper-2); opacity: 0.5; }
+.calendar-day.is-today { border-color: var(--blue); border-width: 2px; }
+.calendar-day__num { font-size: 11px; font-weight: 700; color: var(--paper-muted); }
+.calendar-pill {
+  font-size: 10px; padding: 2px 5px; border-radius: 4px; color: #fff; cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+@media (max-width: 640px) {
+  .calendar-day { min-height: 52px; }
+  .calendar-pill { font-size: 9px; }
+}
 
 /* ---------- Modal ---------- */
 
