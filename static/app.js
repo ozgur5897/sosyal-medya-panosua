@@ -21,11 +21,18 @@ const BRANDS = [
   { key: "ortak", label: "Ortak" },
 ];
 
+const SIZES = [
+  { key: "kare", label: "Kare (1:1)" },
+  { key: "story", label: "Story (9:16)" },
+  { key: "yatay", label: "Yatay (16:9)" },
+];
+
 const state = {
   me: null, // {id, username, display_name, role, is_admin}
   cards: [],
   openCardId: null,
   createPlatforms: [],
+  createSizes: [],
   createBrand: "ortak",
   createAttachmentFile: null,
   bannerTimer: null,
@@ -40,6 +47,9 @@ function platformLabel(key) {
 }
 function brandLabel(key) {
   return BRANDS.find((b) => b.key === key)?.label || "Ortak";
+}
+function sizeLabel(key) {
+  return SIZES.find((s) => s.key === key)?.label || key;
 }
 function statusLabel(key) {
   return STATUSES.find((s) => s.key === key)?.label || key;
@@ -363,6 +373,7 @@ function cardTileHtml(card) {
           <span>Paylaşım: ${formatDateTime(card.due_date)}</span>
           <span>Açan: ${escapeHtml(card.created_by_name || "")}</span>
           ${card.assigned_to_name ? `<span>Atanan: ${escapeHtml(card.assigned_to_name)}</span>` : ""}
+          ${card.sizes?.length ? `<span>Boyut: ${card.sizes.map(sizeLabel).join(", ")}</span>` : ""}
           ${remaining ? `<span>${remaining}</span>` : ""}
         </div>
         ${card.is_overdue ? `<span class="card__overdue-tag">Gecikti</span>` : ""}
@@ -382,6 +393,9 @@ function renderCreateChips() {
   document.getElementById("f_brand").innerHTML = BRANDS.map(
     (b) => `<button type="button" class="chip ${state.createBrand === b.key ? "is-active-brand" : ""}" data-brand="${b.key}">${escapeHtml(b.label)}</button>`
   ).join("");
+  document.getElementById("f_sizes").innerHTML = SIZES.map(
+    (s) => `<button type="button" class="chip ${state.createSizes.includes(s.key) ? "is-active-platform" : ""}" data-size="${s.key}">${escapeHtml(s.label)}</button>`
+  ).join("");
 
   document.querySelectorAll("#f_platforms .chip").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -398,6 +412,15 @@ function renderCreateChips() {
       renderCreateChips();
     });
   });
+  document.querySelectorAll("#f_sizes .chip").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const k = btn.dataset.size;
+      state.createSizes = state.createSizes.includes(k)
+        ? state.createSizes.filter((x) => x !== k)
+        : [...state.createSizes, k];
+      renderCreateChips();
+    });
+  });
 }
 
 function resetCreateForm() {
@@ -411,6 +434,7 @@ function resetCreateForm() {
   document.getElementById("f_attachment_btn").textContent = "Görsel veya video seç";
   document.getElementById("createError").textContent = "";
   state.createPlatforms = [];
+  state.createSizes = [];
   state.createBrand = "ortak";
   state.createAttachmentFile = null;
   renderCreateChips();
@@ -459,6 +483,7 @@ function initCreateModal() {
       fd.append("brand", state.createBrand);
       fd.append("link", document.getElementById("f_link").value.trim());
       fd.append("assigned_to", document.getElementById("f_assigned_to").value);
+      fd.append("sizes", JSON.stringify(state.createSizes));
       if (state.createAttachmentFile) fd.append("attachment", state.createAttachmentFile);
 
       await api("/api/cards", { method: "POST", body: fd });
@@ -505,6 +530,9 @@ function renderDetail(card) {
 
   const platformsHtml = (card.platforms || [])
     .map((k) => `<span class="platform-tag">${escapeHtml(platformLabel(k))}</span>`)
+    .join("");
+  const sizesHtml = (card.sizes || [])
+    .map((k) => `<span class="platform-tag">${escapeHtml(sizeLabel(k))}</span>`)
     .join("");
 
   const mediaHtml = card.media.length
@@ -556,6 +584,7 @@ function renderDetail(card) {
       ${card.is_overdue ? `<span class="badge badge--red">Gecikti</span>` : ""}
     </div>
     ${platformsHtml ? `<div class="platform-tag-row">${platformsHtml}</div>` : ""}
+    ${sizesHtml ? `<div class="platform-tag-row">${sizesHtml}</div>` : ""}
 
     <div id="viewBlock">
       <p class="detail-desc">${escapeHtml(card.description)}</p>
@@ -692,6 +721,7 @@ function showEditForm(card) {
 
   let ePlatforms = [...(card.platforms || [])];
   let eBrand = card.brand || "ortak";
+  let eSizes = [...(card.sizes || [])];
 
   editBlock.innerHTML = `
     <label class="field">
@@ -701,6 +731,10 @@ function showEditForm(card) {
     <div class="field">
       <span>Platformlar</span>
       <div class="chip-row" id="e_platforms"></div>
+    </div>
+    <div class="field">
+      <span>Görsel boyutları</span>
+      <div class="chip-row" id="e_sizes"></div>
     </div>
     <div class="field">
       <span>Marka</span>
@@ -761,8 +795,23 @@ function showEditForm(card) {
     });
   }
 
+  function renderESizes() {
+    const el = document.getElementById("e_sizes");
+    el.innerHTML = SIZES.map(
+      (s) => `<button type="button" class="chip ${eSizes.includes(s.key) ? "is-active-platform" : ""}" data-size="${s.key}">${escapeHtml(s.label)}</button>`
+    ).join("");
+    el.querySelectorAll(".chip").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const k = btn.dataset.size;
+        eSizes = eSizes.includes(k) ? eSizes.filter((x) => x !== k) : [...eSizes, k];
+        renderESizes();
+      });
+    });
+  }
+
   renderEPlatforms();
   renderEBrand();
+  renderESizes();
 
   document.getElementById("btnCancelEdit").addEventListener("click", () => openDetail(card.id));
 
@@ -787,6 +836,7 @@ function showEditForm(card) {
         brand: eBrand,
         link: document.getElementById("e_link").value.trim(),
         assigned_to: document.getElementById("e_assigned_to").value ? Number(document.getElementById("e_assigned_to").value) : null,
+        sizes: eSizes,
       });
       flash("İş güncellendi.");
       await openDetail(card.id);
@@ -839,6 +889,7 @@ function renderHistory(log) {
               <div class="log-snapshot-grid">
                 <div>Marka: <strong>${escapeHtml(brandLabel(s.brand))}</strong></div>
                 <div>Platformlar: <strong>${(s.platforms || []).map(platformLabel).join(", ") || "—"}</strong></div>
+                <div>Görsel boyutları: <strong>${(s.sizes || []).map(sizeLabel).join(", ") || "—"}</strong></div>
                 <div>Paylaşım tarihi: <strong>${formatDateTime(s.due_date)}</strong></div>
                 <div>Acil: <strong>${s.urgent ? "Evet" : "Hayır"}</strong></div>
                 <div>Açan: <strong>${escapeHtml(s.created_by || "")}</strong></div>
@@ -889,6 +940,7 @@ function renderHistory(log) {
 
 function formatLogValue(field, value) {
   if (field === "platformlar") return Array.isArray(value) ? value.map(platformLabel).join(", ") || "—" : value;
+  if (field === "görsel boyutları") return Array.isArray(value) ? value.map(sizeLabel).join(", ") || "—" : value;
   if (field === "marka") return brandLabel(value);
   if (field === "acil durumu") return value ? "Evet" : "Hayır";
   if (field === "paylaşım tarihi") return formatDateTime(value);
