@@ -153,6 +153,13 @@ def init_db() -> None:
             payload TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS card_reads (
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            card_id INTEGER NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+            last_seen_at TEXT NOT NULL,
+            PRIMARY KEY (user_id, card_id)
+        );
         """
     )
     # Önceki bir sürümden yükseltilen veritabanlarında 'link' sütunu eksik olabilir.
@@ -489,10 +496,44 @@ def change_own_password(body: ChangePasswordRequest, user: dict = Depends(get_cu
 @app.get("/api/cards")
 def list_cards(user: dict = Depends(get_current_user)):
     conn = get_db()
-    rows = conn.execute("SELECT * FROM cards ORDER BY urgent DESC, created_at DESC").fetchall()
+    rows = conn.execute(
+        """
+        SELECT c.*,
+            (SELECT COUNT(*) FROM comments cm
+             WHERE cm.card_id = c.id
+               AND cm.created_at > COALESCE(
+                   (SELECT last_seen_at FROM card_reads WHERE user_id = ? AND card_id = c.id),
+                   ''
+               )
+            ) AS unread_comments
+        FROM cards c
+        ORDER BY c.urgent DESC, c.created_at DESC
+        """,
+        (user["id"],),
+    ).fetchall()
     result = [card_to_dict(conn, r) for r in rows]
     conn.close()
     return result
+
+
+@app.post("/api/cards/{card_id}/mark-read")
+def mark_card_read(card_id: int, user: dict = Depends(get_current_user)):
+    conn = get_db()
+    if not conn.execute("SELECT id FROM cards WHERE id = ?", (card_id,)).fetchone():
+        conn.close()
+        raise HTTPException(404, "İş bulunamadı")
+    # Tam hassasiyet (mikrosaniyeye kadar) kullanılıyor: aynı dakika içinde art arda
+    # olan "gördüm" ve "yeni yorum" olayları yanlışlıkla eşit sayılıp yorum
+    # okunmuş gibi görünmesin diye.
+    now = datetime.now().isoformat()
+    conn.execute(
+        """INSERT INTO card_reads (user_id, card_id, last_seen_at) VALUES (?, ?, ?)
+           ON CONFLICT(user_id, card_id) DO UPDATE SET last_seen_at = excluded.last_seen_at""",
+        (user["id"], card_id, now),
+    )
+    conn.commit()
+    conn.close()
+    return {"ok": True}
 
 
 @app.post("/api/cards")
@@ -745,10 +786,18 @@ def add_comment(card_id: int, text: str = Form(...), user: dict = Depends(get_cu
     if not conn.execute("SELECT id FROM cards WHERE id = ?", (card_id,)).fetchone():
         conn.close()
         raise HTTPException(404, "İş bulunamadı")
-    now = datetime.now().isoformat(timespec="minutes")
+    # Tam hassasiyet: bkz. mark_card_read üzerindeki not.
+    now = datetime.now().isoformat()
     conn.execute(
         "INSERT INTO comments (card_id, author_id, text, created_at) VALUES (?, ?, ?, ?)",
         (card_id, user["id"], text, now),
+    )
+    # Yazan kişi kendi yorumunu otomatik "görmüş" sayılır, kendi rozetinde
+    # okunmamış olarak görünmesin.
+    conn.execute(
+        """INSERT INTO card_reads (user_id, card_id, last_seen_at) VALUES (?, ?, ?)
+           ON CONFLICT(user_id, card_id) DO UPDATE SET last_seen_at = excluded.last_seen_at""",
+        (user["id"], card_id, now),
     )
     conn.commit()
     rows = conn.execute(
