@@ -39,7 +39,7 @@ ALLOWED_VIDEO_EXT = {".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v"}
 MAX_UPLOAD_BYTES = 300 * 1024 * 1024  # 300 MB
 
 VALID_ROLES = {"istek_sahibi", "sosyal_medya"}
-VALID_STATUSES = {"bekliyor", "devam_ediyor", "tamamlandi", "paylasildi"}
+VALID_STATUSES = {"bekliyor", "devam_ediyor", "tamamlandi", "paylasildi", "iptal"}
 FIELD_LABELS = {
     "description": "açıklama",
     "due_date": "paylaşım tarihi",
@@ -124,7 +124,9 @@ def init_db() -> None:
             completed_by INTEGER REFERENCES users(id),
             completed_at TEXT,
             published_by INTEGER REFERENCES users(id),
-            published_at TEXT
+            published_at TEXT,
+            rejected_by INTEGER REFERENCES users(id),
+            rejected_at TEXT
         );
 
         CREATE TABLE IF NOT EXISTS comments (
@@ -162,10 +164,14 @@ def init_db() -> None:
         );
         """
     )
-    # Önceki bir sürümden yükseltilen veritabanlarında 'link' sütunu eksik olabilir.
+    # Önceki bir sürümden yükseltilen veritabanlarında bazı sütunlar eksik olabilir.
     existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(cards)").fetchall()}
     if "link" not in existing_cols:
         conn.execute("ALTER TABLE cards ADD COLUMN link TEXT")
+    if "rejected_by" not in existing_cols:
+        conn.execute("ALTER TABLE cards ADD COLUMN rejected_by INTEGER REFERENCES users(id)")
+    if "rejected_at" not in existing_cols:
+        conn.execute("ALTER TABLE cards ADD COLUMN rejected_at TEXT")
     conn.commit()
     conn.close()
 
@@ -238,9 +244,10 @@ def card_to_dict(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
     d["approved_by_name"] = display_name_for(conn, d["approved_by"])
     d["completed_by_name"] = display_name_for(conn, d["completed_by"])
     d["published_by_name"] = display_name_for(conn, d["published_by"])
+    d["rejected_by_name"] = display_name_for(conn, d["rejected_by"])
     try:
         due = datetime.fromisoformat(d["due_date"])
-        d["is_overdue"] = d["status"] != "paylasildi" and due < datetime.now()
+        d["is_overdue"] = d["status"] not in ("paylasildi", "iptal") and due < datetime.now()
     except ValueError:
         d["is_overdue"] = False
     return d
@@ -674,6 +681,7 @@ def delete_card(card_id: int, user: dict = Depends(require_manager)):
         "approved_by": current["approved_by_name"],
         "completed_by": current["completed_by_name"],
         "published_by": current["published_by_name"],
+        "rejected_by": current["rejected_by_name"],
         "comments": [
             {"author": display_name_for(conn, c["author_id"]), "text": c["text"], "created_at": c["created_at"]}
             for c in comments
@@ -713,6 +721,28 @@ def approve_card(card_id: int, user: dict = Depends(require_manager)):
     now = datetime.now().isoformat(timespec="minutes")
     conn.execute(
         "UPDATE cards SET status = 'devam_ediyor', approved_by = ?, approved_at = ? WHERE id = ?",
+        (user["id"], now, card_id),
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM cards WHERE id = ?", (card_id,)).fetchone()
+    result = card_to_dict(conn, row)
+    conn.close()
+    return result
+
+
+@app.post("/api/cards/{card_id}/reject")
+def reject_card(card_id: int, user: dict = Depends(require_manager)):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM cards WHERE id = ?", (card_id,)).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(404, "İş bulunamadı")
+    if row["status"] != "bekliyor":
+        conn.close()
+        raise HTTPException(400, "Sadece onay bekleyen bir iş iptal edilebilir")
+    now = datetime.now().isoformat(timespec="minutes")
+    conn.execute(
+        "UPDATE cards SET status = 'iptal', rejected_by = ?, rejected_at = ? WHERE id = ?",
         (user["id"], now, card_id),
     )
     conn.commit()
@@ -767,10 +797,17 @@ def reopen_card(card_id: int, user: dict = Depends(require_manager)):
     if not row:
         conn.close()
         raise HTTPException(404, "İş bulunamadı")
-    conn.execute(
-        "UPDATE cards SET status = 'devam_ediyor', completed_by = NULL, completed_at = NULL, published_by = NULL, published_at = NULL WHERE id = ?",
-        (card_id,),
-    )
+    if row["status"] == "iptal":
+        # İptal edilen bir iş hiç onaylanmamıştı, tekrar açılınca onay bekleme aşamasına döner.
+        conn.execute(
+            "UPDATE cards SET status = 'bekliyor', rejected_by = NULL, rejected_at = NULL WHERE id = ?",
+            (card_id,),
+        )
+    else:
+        conn.execute(
+            "UPDATE cards SET status = 'devam_ediyor', completed_by = NULL, completed_at = NULL, published_by = NULL, published_at = NULL WHERE id = ?",
+            (card_id,),
+        )
     conn.commit()
     row = conn.execute("SELECT * FROM cards WHERE id = ?", (card_id,)).fetchone()
     result = card_to_dict(conn, row)
