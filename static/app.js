@@ -743,7 +743,18 @@ function renderHistory(log) {
                 <div>Açan: <strong>${escapeHtml(s.created_by || "")}</strong></div>
                 <div>Silindiğinde durum: <strong>${escapeHtml(statusLabel(s.status))}</strong></div>
               </div>
-              ${s.media_summary?.length ? `<div style="font-size:12px;color:var(--paper-muted)">Medya: ${s.media_summary.map((m) => `${m.media_type === "video" ? "video" : "görsel"} (${escapeHtml(m.uploaded_by || "")})`).join(", ")}</div>` : ""}
+              ${s.media_summary?.length ? `
+                <div>
+                  <p style="font-size:11.5px;color:var(--paper-muted);margin:4px 0 6px;font-weight:700">Görsel / video</p>
+                  <div class="media-grid">
+                    ${s.media_summary.map((m) =>
+                      m.media_type === "video"
+                        ? `<div><video src="${escapeHtml(m.file_path)}" controls></video><div class="media-caption">${escapeHtml(m.uploaded_by || "")}</div></div>`
+                        : `<div><img src="${escapeHtml(m.file_path)}" alt="" /><div class="media-caption">${escapeHtml(m.uploaded_by || "")}</div></div>`
+                    ).join("")}
+                  </div>
+                </div>
+              ` : ""}
               ${s.comments?.length ? `<div>
                 <p style="font-size:11.5px;color:var(--paper-muted);margin:4px 0 6px;font-weight:700">Yorumlar</p>
                 ${s.comments.map((c) => `<div style="font-size:12px;background:var(--paper-2);border-radius:6px;padding:6px 9px;margin-bottom:4px"><strong>${escapeHtml(c.author || "")}:</strong> ${escapeHtml(c.text)}</div>`).join("")}
