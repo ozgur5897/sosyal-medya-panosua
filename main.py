@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
@@ -57,6 +57,11 @@ BRAND_LABELS = {
     "estanbul_gaming": "Estanbul Gaming",
     "ortak": "Ortak",
 }
+SIZE_LABELS = {
+    "kare": "Kare (1:1)",
+    "story": "Story (9:16)",
+    "yatay": "Yatay (16:9)",
+}
 
 
 def platform_label(key: str) -> str:
@@ -67,6 +72,10 @@ def brand_label(key: str) -> str:
     return BRAND_LABELS.get(key, "Ortak")
 
 
+def size_label(key: str) -> str:
+    return SIZE_LABELS.get(key, key)
+
+
 FIELD_LABELS = {
     "description": "açıklama",
     "due_date": "paylaşım tarihi",
@@ -75,6 +84,7 @@ FIELD_LABELS = {
     "brand": "marka",
     "link": "bağlantı",
     "assigned_to": "atanan kişi",
+    "sizes": "görsel boyutları",
 }
 
 
@@ -144,6 +154,7 @@ def init_db() -> None:
             platforms TEXT NOT NULL DEFAULT '[]',
             brand TEXT NOT NULL DEFAULT 'ortak',
             link TEXT,
+            sizes TEXT NOT NULL DEFAULT '[]',
             status TEXT NOT NULL DEFAULT 'bekliyor',
             created_by INTEGER NOT NULL REFERENCES users(id),
             created_at TEXT NOT NULL,
@@ -203,6 +214,8 @@ def init_db() -> None:
         conn.execute("ALTER TABLE cards ADD COLUMN rejected_at TEXT")
     if "assigned_to" not in existing_cols:
         conn.execute("ALTER TABLE cards ADD COLUMN assigned_to INTEGER REFERENCES users(id)")
+    if "sizes" not in existing_cols:
+        conn.execute("ALTER TABLE cards ADD COLUMN sizes TEXT NOT NULL DEFAULT '[]'")
     conn.commit()
     conn.close()
 
@@ -271,6 +284,10 @@ def card_to_dict(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
         d["platforms"] = json.loads(d["platforms"])
     except (TypeError, ValueError):
         d["platforms"] = []
+    try:
+        d["sizes"] = json.loads(d["sizes"])
+    except (TypeError, ValueError):
+        d["sizes"] = []
     d["created_by_name"] = display_name_for(conn, d["created_by"])
     d["approved_by_name"] = display_name_for(conn, d["approved_by"])
     d["completed_by_name"] = display_name_for(conn, d["completed_by"])
@@ -353,6 +370,7 @@ class CardEditRequest(BaseModel):
     brand: str
     link: Optional[str] = None
     assigned_to: Optional[int] = None
+    sizes: list[str] = []
 
 
 # ---------------- Auth uç noktaları ----------------
@@ -598,6 +616,7 @@ def create_card(
     brand: str = Form("ortak"),
     link: str = Form(""),
     assigned_to: str = Form(""),
+    sizes: str = Form("[]"),
     attachment: Optional[UploadFile] = File(None),
     user: dict = Depends(get_current_user),
 ):
@@ -608,6 +627,13 @@ def create_card(
     except (TypeError, ValueError):
         platform_list = []
 
+    try:
+        size_list = json.loads(sizes)
+        if not isinstance(size_list, list):
+            size_list = []
+    except (TypeError, ValueError):
+        size_list = []
+
     link_value = normalize_link(link)
     assigned_to_value = int(assigned_to) if assigned_to.strip().isdigit() else None
 
@@ -616,9 +642,9 @@ def create_card(
 
     conn = get_db()
     cur = conn.execute(
-        """INSERT INTO cards (description, due_date, urgent, platforms, brand, link, assigned_to, created_by, created_at, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'bekliyor')""",
-        (description, due_date, int(is_urgent), json.dumps(platform_list), brand, link_value, assigned_to_value, user["id"], now),
+        """INSERT INTO cards (description, due_date, urgent, platforms, brand, link, assigned_to, sizes, created_by, created_at, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'bekliyor')""",
+        (description, due_date, int(is_urgent), json.dumps(platform_list), brand, link_value, assigned_to_value, json.dumps(size_list), user["id"], now),
     )
     card_id = cur.lastrowid
 
@@ -679,6 +705,7 @@ def edit_card(card_id: int, body: CardEditRequest, user: dict = Depends(require_
         "brand": body.brand,
         "link": new_link,
         "assigned_to": new_assigned_name,
+        "sizes": body.sizes,
     }
     current_for_diff = dict(current)
     current_for_diff["assigned_to"] = current["assigned_to_name"]
@@ -693,8 +720,8 @@ def edit_card(card_id: int, body: CardEditRequest, user: dict = Depends(require_
 
     if changes:
         conn.execute(
-            "UPDATE cards SET description = ?, due_date = ?, urgent = ?, platforms = ?, brand = ?, link = ?, assigned_to = ? WHERE id = ?",
-            (body.description, body.due_date, int(body.urgent), json.dumps(body.platforms), body.brand, new_link, body.assigned_to, card_id),
+            "UPDATE cards SET description = ?, due_date = ?, urgent = ?, platforms = ?, brand = ?, link = ?, assigned_to = ?, sizes = ? WHERE id = ?",
+            (body.description, body.due_date, int(body.urgent), json.dumps(body.platforms), body.brand, new_link, body.assigned_to, json.dumps(body.sizes), card_id),
         )
         now = datetime.now().isoformat(timespec="minutes")
         conn.execute(
@@ -736,6 +763,7 @@ def delete_card(card_id: int, user: dict = Depends(require_manager)):
         "published_by": current["published_by_name"],
         "rejected_by": current["rejected_by_name"],
         "assigned_to": current["assigned_to_name"],
+        "sizes": current["sizes"],
         "comments": [
             {"author": display_name_for(conn, c["author_id"]), "text": c["text"], "created_at": c["created_at"]}
             for c in comments
@@ -962,7 +990,7 @@ def export_csv(user: dict = Depends(require_manager)):
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow([
-        "ID", "Açıklama", "Marka", "Platformlar", "Durum", "Acil", "Bağlantı",
+        "ID", "Açıklama", "Marka", "Platformlar", "Görsel Boyutları", "Durum", "Acil", "Bağlantı",
         "Atanan", "Açan", "Oluşturulma", "Paylaşım Tarihi",
         "Onaylayan", "Onay Tarihi", "Tamamlayan", "Tamamlanma Tarihi",
         "Paylaşan", "Paylaşım Yapılma Tarihi", "Reddeden", "Red Tarihi",
@@ -973,6 +1001,7 @@ def export_csv(user: dict = Depends(require_manager)):
             c["description"],
             brand_label(c["brand"]),
             ", ".join(platform_label(p) for p in c["platforms"]),
+            ", ".join(size_label(s) for s in c["sizes"]),
             STATUS_LABELS_TR.get(c["status"], c["status"]),
             "Evet" if c["urgent"] else "Hayır",
             c["link"] or "",
@@ -1039,6 +1068,19 @@ def download_backup(admin: dict = Depends(require_admin)):
         content=json.dumps(backup, ensure_ascii=False, indent=2),
         media_type="application/json",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/", response_class=HTMLResponse)
+def serve_index():
+    # Ana sayfa (index.html) tarayıcı tarafından önbelleğe alınmasın diye özellikle
+    # burada elle serve ediyoruz — statik dosya mount'u bunu otomatik yapardı ama
+    # bazı tarayıcılar/aracı sunucular onu da önbellekleyip eski sürümü gösterebiliyordu.
+    # app.js ve styles.css için önbellek yönetimi index.html içindeki ?v= numarasıyla yapılıyor.
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    return HTMLResponse(
+        content=html,
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
     )
 
 
